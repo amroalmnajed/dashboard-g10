@@ -711,6 +711,7 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
   // ── CONFIG (Grade 10) ─────────────────────────────────────────
   const SHEET_ID   = '1vuOBu3JJqWUa0uCY6rmdwJbkZeqJ6QPhx6519gvQS10';
   const SHEET_NAME = 'Summary';
+  const PUB_CSV_URL= 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTfSiFLBuOb4qjIgcdjdn01MgehOj7jIX_9mt07sOEndhFEvBA9tQQ96dI3P27i7JWIsUzytT1h_lbv/pub?gid=1010834678&single=true&output=csv';
   const PUB_BASE   = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTfSiFLBuOb4qjIgcdjdn01MgehOj7jIX_9mt07sOEndhFEvBA9tQQ96dI3P27i7JWIsUzytT1h_lbv';
   const CSV_URL    = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
 
@@ -984,8 +985,16 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
         const table = await fetchJSONP(SHEET_ID, SHEET_NAME);
         rows = tableToRows(table);
       } catch (e) {
-        // If summary tab is not found in sheet, load directly from Assessment + Attendance + HW
-        console.log('Summary tab not available, falling back to direct multi-sheet loader.');
+        console.warn('JSONP failed for Summary, trying published CSV fallback...', e.message);
+        if (PUB_CSV_URL) {
+          try {
+            const pubUrl = isRefresh ? PUB_CSV_URL + '&_=' + Date.now() : PUB_CSV_URL;
+            const res = await fetch(pubUrl, { cache: isRefresh ? 'reload' : 'default' });
+            if (res.ok) rows = parseCSV(await res.text());
+          } catch(pubErr) {
+            console.warn('Pub CSV failed:', pubErr);
+          }
+        }
       }
 
       if (rows && rows.length >= 2) {
