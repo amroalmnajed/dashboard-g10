@@ -46,7 +46,7 @@
 }
 
 /* PDF render area always light */
-#pdfRenderArea {
+#pdfRenderArea, #printTogetherArea {
   --bg:#F7F5F2; --card:rgba(255,255,255,0.95); --card-border:rgba(200,200,200,0.6);
   --text:#1A1A1A; --muted:#8A8A8A; --dim:#B5B5B5;
   --emerald:#2E9E6B; --emerald-bg:#E8F5EE;
@@ -59,6 +59,8 @@
   --chart-grid:#D8E8EC; --chart-drop:#FDE9B8; --chart-absent:#F5C6CB;
   --chart-line:#A855C7; --chart-dot:#A855C7;
 }
+
+#printTogetherArea { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
@@ -403,7 +405,7 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
   table { font-size:11px !important; } thead th { font-size:9px !important; padding:4px 0 !important; } tbody td { padding:4px 0 !important; }
   .bar-row { grid-template-columns:85px 1fr 45px !important; gap:10px !important; margin-bottom:6px !important; font-size:11px !important; }
   .bar-track { height:7px !important; background:#eee !important; box-shadow:none !important; } .bar-fill { box-shadow:none !important; }
-  .chart-wrap { height:148px !important; } .chart-y-axis { height:130px !important; } .chart-area { height:130px !important; } .chart-svg { height:130px !important; }
+  .chart-wrap { height:148px !important; overflow:visible !important; } .chart-y-axis { height:130px !important; } .chart-area { height:130px !important; overflow:visible !important; } .chart-svg { height:130px !important; width:100% !important; overflow:visible !important; }
   .chart-x-labels { top:132px !important; } .chart-x-labels span { font-size:9px !important; } .chart-y-axis span { font-size:9px !important; }
   #quizTrendCaption { margin-top:8px !important; padding-top:6px !important; font-size:10px !important; }
   .notes-card { padding-inline-start:22px !important; margin-bottom:8px !important; }
@@ -412,6 +414,12 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
   .notes-print { display:block !important; white-space:pre-wrap; word-break:break-word; font-size:11px !important; line-height:1.5 !important; padding:6px 10px !important; border:1px solid #e0e0e0 !important; background:#fafafa !important; border-radius:10px !important; min-height:40px; color:#2a2a2a; }
   .notes-footer-row { display:none !important; }
   .footer { margin-top:8px !important; font-size:10px !important; color:#999 !important; }
+
+  /* Print-together: hide the live app, show the staged multi-page document */
+  body.printing-together #app { display: none !important; }
+  body.printing-together #printTogetherArea { display: block !important; }
+  body.printing-together #printTogetherArea .print-page { break-after: page; page-break-after: always; }
+  body.printing-together #printTogetherArea .print-page:last-child { break-after: auto; page-break-after: auto; }
 }
 </style>
 </head>
@@ -545,6 +553,9 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
 
 <!-- Off-screen render area for PDF capture -->
 <div id="pdfRenderArea" aria-hidden="true"></div>
+
+<!-- Staging area for Print Together -->
+<div id="printTogetherArea" aria-hidden="true"></div>
 
 <script>
 (function () {
@@ -1096,6 +1107,7 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
   const PLOT_TOP=10, PLOT_BOTTOM=210, PLOT_H=200;
   function gradeY(g) { return PLOT_TOP + (9 - Math.max(0,Math.min(9,Number(g)||0))) * (PLOT_H/9); }
 
+  let __chartSeq = 0;
   function renderQuizChart(quizRows, opts) {
     opts = opts || {};
     const chartArea = opts.chartArea || document.getElementById('quizChartArea');
@@ -1115,6 +1127,9 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
     const af  = opts.areaFrom    || cs.getPropertyValue('--chart-area-from').trim()|| 'rgba(168,85,199,0.38)';
     const at  = opts.areaTo      || cs.getPropertyValue('--chart-area-to').trim()  || 'rgba(168,85,199,0.02)';
     const mutedColor = cs.getPropertyValue('--muted').trim() || '#8A8A8A';
+    // Unique gradient id per render (prevents duplicate-id collisions between
+    // the on-screen chart and any off-screen clone)
+    const gid = 'ag_' + (++__chartSeq);
 
     // Y-axis
     if (yAxisEl) {
@@ -1163,10 +1178,10 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
     let areaPath='',polyline='';
     if (pts.length>=2) {
       const d=`M ${pts.map(p=>`${p.x},${p.y}`).join(' L ')} L ${pts[pts.length-1].x},${PLOT_BOTTOM} L ${pts[0].x},${PLOT_BOTTOM} Z`;
-      areaPath=`<path d="${d}" fill="url(#ag_${N})" stroke="none"/>`;
+      areaPath=`<path d="${d}" fill="url(#${gid})" stroke="none"/>`;
       polyline=`<polyline points="${pts.map(p=>`${p.x},${p.y}`).join(' ')}" fill="none" stroke="${lc}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>`;
     } else if (pts.length===1) {
-      areaPath=`<path d="M ${pts[0].x-40},${PLOT_BOTTOM} L ${pts[0].x},${pts[0].y} L ${pts[0].x+40},${PLOT_BOTTOM} Z" fill="url(#ag_${N})" stroke="none"/>`;
+      areaPath=`<path d="M ${pts[0].x-40},${PLOT_BOTTOM} L ${pts[0].x},${pts[0].y} L ${pts[0].x+40},${PLOT_BOTTOM} Z" fill="url(#${gid})" stroke="none"/>`;
     }
     const circles=pts.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="6" fill="${dotc}" stroke="#fff" stroke-width="2.5" style="filter:drop-shadow(0 3px 6px rgba(168,85,199,0.5))"/>`).join('');
 
@@ -1174,10 +1189,13 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
     svg.setAttribute('class','chart-svg');
     svg.setAttribute('viewBox','0 0 800 220');
+    // Explicit intrinsic size so rasterizers (html2canvas etc.) never guess wrong
+    svg.setAttribute('width','800');
+    svg.setAttribute('height','220');
     svg.setAttribute('preserveAspectRatio','none');
     svg.innerHTML=`
       ${gridLines.join('')}
-      <defs><linearGradient id="ag_${N}" x1="0" y1="0" x2="0" y2="1">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${af}"/>
         <stop offset="100%" stop-color="${at}"/>
       </linearGradient></defs>
@@ -1200,6 +1218,46 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
       }
       captionEl.textContent=msg;
     }
+  }
+
+  // ── CHART RASTERIZER (PDF export safety) ──────────────────────
+  // html2canvas cannot reliably rasterize inline SVGs that use viewBox +
+  // preserveAspectRatio="none" (it draws them at natural size and clips the
+  // right side). To guarantee the full chart appears in the exported PDF,
+  // we convert the rendered SVG into a plain PNG <img> inside the clone.
+  function rasterizeChartForCanvas(chartArea) {
+    return new Promise(resolve => {
+      try {
+        const svgEl = chartArea ? chartArea.querySelector('svg.chart-svg') : null;
+        if (!svgEl) { resolve(); return; }
+        const W = 800, H = 220, S = 2;
+        const serial = svgEl.cloneNode(true);
+        serial.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        serial.setAttribute('width', W);
+        serial.setAttribute('height', H);
+        const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(serial));
+        const swap = (src) => {
+          const img = document.createElement('img');
+          img.src = src;
+          img.className = 'chart-svg';
+          img.style.cssText = 'width:100%;height:220px;display:block;';
+          if (svgEl.parentNode) svgEl.parentNode.replaceChild(img, svgEl);
+          resolve();
+        };
+        const probe = new Image();
+        probe.onload = () => {
+          try {
+            const cv = document.createElement('canvas');
+            cv.width = W * S; cv.height = H * S;
+            const ctx = cv.getContext('2d');
+            ctx.drawImage(probe, 0, 0, cv.width, cv.height);
+            swap(cv.toDataURL('image/png'));
+          } catch (e) { swap(svgUrl); }
+        };
+        probe.onerror = () => swap(svgUrl);
+        probe.src = svgUrl;
+      } catch (e) { resolve(); }
+    });
   }
 
   // ── RENDER STUDENT ────────────────────────────────────────────
@@ -1444,6 +1502,8 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
               lineColor:'#A855C7',dotColor:'#A855C7',
               areaFrom:'rgba(168,85,199,0.38)',areaTo:'rgba(168,85,199,0.02)',
             });
+            // Replace the SVG with a raster <img> so html2canvas cannot clip it
+            await rasterizeChartForCanvas(cloneChartArea);
           }
 
           // Fix glass cards in clone
@@ -1492,6 +1552,124 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
       exportExportInProgress=false;
       document.getElementById('exportPDFsBtn').disabled=false;
       document.getElementById('printTogetherBtn').disabled=false;
+    }
+  }
+
+  // ── PRINT TOGETHER ────────────────────────────────────────────
+  // Builds a staged multi-page document (one dashboard clone per selected
+  // student) inside #printTogetherArea, then opens the print dialog. The
+  // @media print CSS hides #app and shows the staged pages with page breaks.
+  async function printTogether() {
+    if (exportExportInProgress) return;
+
+    const checkboxes = document.querySelectorAll('#exportList input[type="checkbox"]:checked');
+    const indices = [...checkboxes].map(cb => parseInt(cb.value, 10)).filter(i => studentsData[i]);
+    if (!indices.length) return;
+
+    const stage = document.getElementById('printTogetherArea');
+    const prog = document.getElementById('exportProgress');
+    const savedIdx = currentStudentIdx;
+
+    // Close the panel first (closePanel bails if the lock is set)
+    closePanel();
+
+    exportExportInProgress = true;
+    document.getElementById('exportPDFsBtn').disabled = true;
+    document.getElementById('printTogetherBtn').disabled = true;
+    prog.classList.add('show');
+
+    const setProgress = (frac, msg) => {
+      document.getElementById('progFill').style.width = Math.round(frac * 100) + '%';
+      document.getElementById('progText').textContent = msg;
+    };
+
+    let cleanedUp = false;
+    function cleanup() {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      window.removeEventListener('afterprint', cleanup);
+      document.body.classList.remove('printing-together');
+      stage.innerHTML = '';
+      prog.classList.remove('show');
+      exportExportInProgress = false;
+      document.getElementById('exportPDFsBtn').disabled = false;
+      document.getElementById('printTogetherBtn').disabled = false;
+      if (savedIdx !== -1 && studentsData[savedIdx]) {
+        selectStudent(savedIdx, false);
+        selectEl.value = String(savedIdx);
+      }
+    }
+    window.addEventListener('afterprint', cleanup);
+
+    try {
+      setProgress(0, t('preparing'));
+      stage.innerHTML = '';
+
+      for (let i = 0; i < indices.length; i++) {
+        const idx = indices[i];
+        const s = studentsData[idx];
+        setProgress(i / indices.length, t('genPDF', s.name));
+
+        // Populate the live dashboard with this student, then clone it.
+        selectStudent(idx, false);
+        await tick();
+
+        const noteText = (document.getElementById('notesTextarea') || {}).value || '';
+
+        const page = document.createElement('div');
+        page.className = 'print-page';
+
+        const clone = document.getElementById('dashboard').cloneNode(true);
+        clone.style.display = 'block';
+        clone.style.background = 'none';
+        page.appendChild(clone);
+        stage.appendChild(page);
+
+        // Re-render chart inside the clone with forced light colors
+        const cArea = clone.querySelector('#quizChartArea');
+        if (cArea) {
+          renderQuizChart(lastQuizRows, {
+            chartArea: cArea,
+            xAxisEl:   clone.querySelector('#quizChartXAxis'),
+            yAxisEl:   clone.querySelector('#quizYAxis'),
+            captionEl: clone.querySelector('#quizTrendCaption'),
+            themeRoot: stage,
+            gridColor:'#D8E8EC', dropColor:'#FDE9B8', absentColor:'#F5C6CB',
+            lineColor:'#A855C7', dotColor:'#A855C7',
+            areaFrom:'rgba(168,85,199,0.38)', areaTo:'rgba(168,85,199,0.02)',
+          });
+        }
+
+        // Sync the print-notes text (cloneNode does not copy live textarea value)
+        const pr = clone.querySelector('#notesPrint');
+        if (pr) pr.textContent = noteText;
+
+        // Flatten glass effects for print
+        clone.querySelectorAll('.glass').forEach(g => {
+          g.style.cssText += 'background:#ffffff!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border:1px solid #e8e8e8!important;box-shadow:none!important;transform:none!important;';
+        });
+      }
+
+      // Restore the live dashboard to the previously selected student before
+      // printing (it's hidden during print-together anyway).
+      if (savedIdx !== -1 && studentsData[savedIdx]) {
+        selectStudent(savedIdx, false);
+        selectEl.value = String(savedIdx);
+      }
+
+      setProgress(1, t('doneAll', indices.length));
+
+      if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+      await tick();
+      await tick();
+
+      document.body.classList.add('printing-together');
+      window.print();
+      // Fallback in case 'afterprint' never fires on this browser
+      setTimeout(cleanup, 1000);
+    } catch (err) {
+      console.error('Print together failed:', err);
+      cleanup();
     }
   }
 
@@ -1551,14 +1729,8 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
     // Export PDFs
     document.getElementById('exportPDFsBtn').addEventListener('click',exportPDFs);
 
-    // Print together
-    document.getElementById('printTogetherBtn').addEventListener('click',()=>{
-      const ta=document.getElementById('notesTextarea');
-      const pr=document.getElementById('notesPrint');
-      if(ta&&pr) pr.textContent=ta.value||'';
-      closePanel();
-      setTimeout(()=>window.print(),120);
-    });
+    // Print together (multi-student staged print)
+    document.getElementById('printTogetherBtn').addEventListener('click', printTogether);
   }
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -1566,6 +1738,12 @@ html[dir="rtl"] .chart-x-labels span { transform:translateX(50%); }
   applyI18N();
   initNotes();
   initEvents();
+  // Safety net for the native print path: redraw the chart right before printing
+  window.addEventListener('beforeprint', function () {
+    if (lastQuizRows && lastQuizRows.length > 0) {
+      renderQuizChart(lastQuizRows);
+    }
+  });
   window.addEventListener('DOMContentLoaded',()=>loadData(false));
 
 })();
