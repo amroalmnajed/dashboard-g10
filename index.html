@@ -313,8 +313,8 @@ tbody td { padding:14px 0; border-bottom:1px solid var(--line-faint); color:var(
 tbody tr:last-child td { border-bottom:none; }
 
 .pill { display:inline-block; padding:4px 14px; border-radius:40px; font-size:13px; font-weight:600; background:rgba(128,128,128,0.08); color:var(--text); }
-.pill.present { background:var(--emerald-bg); color:var(--emerald); }
-.pill.absent  { background:var(--coral-bg);   color:var(--coral);   }
+.pill.present, .pill.enrolled { background:var(--emerald-bg); color:var(--emerald); }
+.pill.absent, .pill.missing   { background:var(--coral-bg);   color:var(--coral);   }
 .pill.late    { background:var(--amber-bg);    color:var(--amber);   }
 
 .bar-track { height:10px; background:rgba(128,128,128,0.1); border-radius:999px; overflow:hidden; box-shadow:inset 0 1px 3px rgba(0,0,0,0.06); }
@@ -662,6 +662,16 @@ tbody tr:last-child td { border-bottom:none; }
     captOneQuiz:(name,g)=>`Only 1 quiz on record (${name} · Grade ${g}). More quizzes needed for a trend line.`,
     captNoScore:'No quiz scores recorded for this student yet.',
     presentLabel:'Present', absentLabel:'Absent', lateLabel:'Late', absLabel:'Abs',
+    enrolledRecently:'Enrolled recently',
+    noAbsences:'No absences',
+    onTrack:'On track',
+    metaNewStudent:'Selected by Mr. Yaman · Newly Enrolled Student',
+    metaMidWay:'Selected by Mr. Yaman · Joined Course Mid-Way',
+    newStudentHWSub:'Newly enrolled · First assignment upcoming',
+    newStudentQuizzesSub:'Newly enrolled · No quizzes assigned yet',
+    midWayQuizGrade:(n,start)=>`Grade out of 9 · ${n} quiz${n===1?'':'zes'} (Tracked from Quiz ${start})`,
+    newStudentQuizRow:'👋 Newly enrolled student — No quizzes recorded yet. Upcoming quizzes will appear here.',
+    newStudentChartMsg:'📈 Quiz performance chart will activate once the first quiz is completed.',
   };
 
   function t(key, ...args) {
@@ -737,7 +747,7 @@ tbody tr:last-child td { border-bottom:none; }
     notComplete:['notcomplete','incomplete','notcompleted'],
     hwTotal:['hwtotal','homeworktotal','totalhw','totalhomework','hwassigned'],
     hwDone:['hwdone','homeworkdone','donehw','donehomework'],
-    hwMissing:['hwmissing','homeworkmissing','missinghw','missinghomework'],
+    hwMissing:['hwmissing','homeworkmissing','missinghw','missinghomework','hwabsent','homeworkabsent'],
     hwNotComplete:['hwnotcomplete','homeworknotcomplete','hwnotcompleted','homeworknotcompleted'],
     note:['note','notes','comment','comments','teachernote'],
     code:['code','studentcode','studentid','studentno','id','rollno','rollnumber'],
@@ -1127,7 +1137,7 @@ tbody tr:last-child td { border-bottom:none; }
     if (N===0) {
       chartArea.querySelector('.chart-svg')?.remove();
       if (xAxisEl) xAxisEl.innerHTML='';
-      if (captionEl) captionEl.textContent = t('captNoScore');
+      if (captionEl) captionEl.textContent = t('newStudentChartMsg');
       return;
     }
 
@@ -1236,7 +1246,17 @@ tbody tr:last-child td { border-bottom:none; }
   // ── STUDENT RENDER HELPERS ───────────────────────────────────
   function buildQuizRows(s) {
     const quizList=(s.quizzes||[]).slice(0,validQuizCount);
-    return quizList.map(q=>{
+    const firstTakenIdx=quizList.findIndex(q=>isQuizTaken(q.raw));
+
+    // If student has taken 0 quizzes
+    if (firstTakenIdx === -1) {
+      return [];
+    }
+
+    // For mid-way students who joined after Quiz 1, only track quizzes starting from when they joined
+    const activeQuizzes = quizList.slice(firstTakenIdx);
+
+    return activeQuizzes.map(q=>{
       const taken=isQuizTaken(q.raw);
       if (taken) {
         const m=Number(q.raw), mx=q.max||classQuizMax[q.name]||0;
@@ -1253,10 +1273,16 @@ tbody tr:last-child td { border-bottom:none; }
   function statusClass(raw) {
     const v = String(raw==null?'':raw).trim().toLowerCase();
     if (!v) return '';
-    if (v==='present' || v==='done' || v==='submitted') return 'present';
+    if (v==='present' || v==='done' || v==='submitted' || v==='enrolled') return 'present';
     if (v==='absent' || v==='missing') return 'absent';
     if (v==='late' || v==='not complete' || v==='notcomplete') return 'late';
     return '';
+  }
+  function formatHwStatus(raw) {
+    const v = String(raw==null?'':raw).trim();
+    if (!v) return '—';
+    if (v.toLowerCase() === 'absent') return 'Missing';
+    return v;
   }
   function setPill(el, raw) {
     if (!el) return;
@@ -1272,6 +1298,21 @@ tbody tr:last-child td { border-bottom:none; }
   }
 
   function renderWeeklyReport(s) {
+    const isBrandNew = (!s.s1num && !s.s2num && !s.h1num && (s.present + s.absent + s.late === 0));
+    if (isBrandNew) {
+      setText('wrS1Num', '—');
+      setText('wrS1Group', 'New Student');
+      setPill(document.getElementById('wrS1Status'), 'Enrolled');
+      setText('wrS2Num', '—');
+      setText('wrS2Group', '—');
+      setPill(document.getElementById('wrS2Status'), 'Enrolled');
+      setText('wrH1Num', '—');
+      setPill(document.getElementById('wrH1Status'), 'Pending');
+      setText('wrH2Num', '—');
+      setPill(document.getElementById('wrH2Status'), 'Pending');
+      return;
+    }
+
     setText('wrS1Num', s.s1num);
     setText('wrS1Group', s.s1group);
     setPill(document.getElementById('wrS1Status'), s.s1status);
@@ -1279,9 +1320,9 @@ tbody tr:last-child td { border-bottom:none; }
     setText('wrS2Group', s.s2group);
     setPill(document.getElementById('wrS2Status'), s.s2status);
     setText('wrH1Num', s.h1num);
-    setPill(document.getElementById('wrH1Status'), s.h1status);
+    setPill(document.getElementById('wrH1Status'), formatHwStatus(s.h1status));
     setText('wrH2Num', s.h2num);
-    setPill(document.getElementById('wrH2Status'), s.h2status);
+    setPill(document.getElementById('wrH2Status'), formatHwStatus(s.h2status));
   }
 
   function selectStudent(index, pushState) {
@@ -1289,9 +1330,23 @@ tbody tr:last-child td { border-bottom:none; }
     currentStudent=s; currentStudentIdx=index;
     if (pushState!==false) pushURL(s.name);
 
+    const total=s.present+s.absent+s.late;
+    const isBrandNew = (total === 0 && s.hwTotal === 0);
+
+    const quizList=(s.quizzes||[]).slice(0,validQuizCount);
+    const firstTakenIdx=quizList.findIndex(q=>isQuizTaken(q.raw));
+    const isMidWay = (firstTakenIdx > 0);
+    const isNoQuizzes = (firstTakenIdx === -1);
+
     // Header
     document.getElementById('studentName').textContent=s.name;
-    document.getElementById('studentMeta').textContent=t('meta');
+    if (isBrandNew) {
+      document.getElementById('studentMeta').textContent=t('metaNewStudent');
+    } else if (isMidWay) {
+      document.getElementById('studentMeta').textContent=t('metaMidWay');
+    } else {
+      document.getElementById('studentMeta').textContent=t('meta');
+    }
 
     // Student code (hide box if empty)
     const codeWrap = document.getElementById('studentCodeWrap');
@@ -1306,40 +1361,68 @@ tbody tr:last-child td { border-bottom:none; }
       }
     }
 
-    const total=s.present+s.absent+s.late;
-
     // Stats grid
-    document.getElementById('statPresent').textContent=s.present;
-    document.getElementById('statPresentSub').textContent=t('ofSessions',total);
-    document.getElementById('statAbsent').textContent=s.absent;
-    document.getElementById('statAbsentSub').textContent=s.absent>0?t('needsFollowUp'):t('perfectAtt');
-    document.getElementById('statLate').textContent=s.late;
-    document.getElementById('statLateSub').textContent=s.late>0?t('watchClosely'):t('alwaysOnTime');
-    document.getElementById('statNotComplete').textContent=s.notComplete;
-    document.getElementById('statNotCompleteSub').textContent=s.notComplete>0?t('missingWork'):t('allCaughtUp');
+    if (isBrandNew) {
+      document.getElementById('statPresent').textContent='—';
+      document.getElementById('statPresentSub').textContent=t('enrolledRecently');
+      document.getElementById('statAbsent').textContent='0';
+      document.getElementById('statAbsentSub').textContent=t('noAbsences');
+      document.getElementById('statLate').textContent='0';
+      document.getElementById('statLateSub').textContent=t('onTrack');
+      document.getElementById('statNotComplete').textContent='0';
+      document.getElementById('statNotCompleteSub').textContent=t('allCaughtUp');
+    } else {
+      document.getElementById('statPresent').textContent=s.present;
+      document.getElementById('statPresentSub').textContent=t('ofSessions',total);
+      document.getElementById('statAbsent').textContent=s.absent;
+      document.getElementById('statAbsentSub').textContent=s.absent>0?t('needsFollowUp'):t('perfectAtt');
+      document.getElementById('statLate').textContent=s.late;
+      document.getElementById('statLateSub').textContent=s.late>0?t('watchClosely'):t('alwaysOnTime');
+      document.getElementById('statNotComplete').textContent=s.notComplete;
+      document.getElementById('statNotCompleteSub').textContent=s.notComplete>0?t('missingWork'):t('allCaughtUp');
+    }
 
     // Weekly report card
     renderWeeklyReport(s);
 
     // Homework progress bars
-    const hwBase=s.hwTotal>0?s.hwTotal:1;
-    document.getElementById('homeworkSub').textContent=s.hwTotal>0?t('totalHW',s.hwTotal):t('noHW');
-    document.getElementById('hwDoneFill').style.width=Math.round((s.hwDone/hwBase)*100)+'%';
-    document.getElementById('hwDoneValue').textContent=s.hwDone;
-    document.getElementById('hwMissingFill').style.width=Math.round((s.hwMissing/hwBase)*100)+'%';
-    document.getElementById('hwMissingValue').textContent=s.hwMissing;
-    document.getElementById('hwNotCompleteFill').style.width=Math.round((s.hwNotComplete/hwBase)*100)+'%';
-    document.getElementById('hwNotCompleteValue').textContent=s.hwNotComplete;
+    if (isBrandNew) {
+      document.getElementById('homeworkSub').textContent=t('newStudentHWSub');
+      document.getElementById('hwDoneFill').style.width='0%';
+      document.getElementById('hwDoneValue').textContent='—';
+      document.getElementById('hwMissingFill').style.width='0%';
+      document.getElementById('hwMissingValue').textContent='—';
+      document.getElementById('hwNotCompleteFill').style.width='0%';
+      document.getElementById('hwNotCompleteValue').textContent='—';
+    } else {
+      const hwBase=s.hwTotal>0?s.hwTotal:1;
+      document.getElementById('homeworkSub').textContent=s.hwTotal>0?t('totalHW',s.hwTotal):t('noHW');
+      document.getElementById('hwDoneFill').style.width=Math.round((s.hwDone/hwBase)*100)+'%';
+      document.getElementById('hwDoneValue').textContent=s.hwDone;
+      document.getElementById('hwMissingFill').style.width=Math.round((s.hwMissing/hwBase)*100)+'%';
+      document.getElementById('hwMissingValue').textContent=s.hwMissing;
+      document.getElementById('hwNotCompleteFill').style.width=Math.round((s.hwNotComplete/hwBase)*100)+'%';
+      document.getElementById('hwNotCompleteValue').textContent=s.hwNotComplete;
+    }
 
     // Quizzes
     const perfSub=document.getElementById('quizPerfSub');
     const quizRows=buildQuizRows(s);
     lastQuizRows=quizRows;
-    if (perfSub) perfSub.textContent=quizRows.length===0?t('noQuizzes'):t('quizGrade',quizRows.length);
+    if (perfSub) {
+      if (isNoQuizzes) {
+        perfSub.textContent = (isBrandNew || total <= 2) ? t('newStudentQuizzesSub') : t('noQuizzes');
+      } else if (isMidWay) {
+        perfSub.textContent = t('midWayQuizGrade', quizRows.length, firstTakenIdx + 1);
+      } else {
+        perfSub.textContent = t('quizGrade', quizRows.length);
+      }
+    }
 
     const quizBody=document.getElementById('quizTableBody');
     if (quizRows.length===0) {
-      quizBody.innerHTML=`<tr><td colspan="3" style="color:var(--muted);font-weight:500;padding:18px 0;">${t('noQuizRow')}</td></tr>`;
+      const emptyMsg = (isBrandNew || total <= 2) ? t('newStudentQuizRow') : t('noQuizRow');
+      quizBody.innerHTML=`<tr><td colspan="3" style="color:var(--muted);font-weight:500;padding:24px 0;text-align:center;">${emptyMsg}</td></tr>`;
     } else {
       quizBody.innerHTML=quizRows.map(q=>{
         if (q.taken) {
